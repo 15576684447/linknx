@@ -89,9 +89,40 @@ public:
 		}
 	}
 
-	void advanceToMonth(int month)
+	void advanceToMonth(int month, bool resetsDay, bool resetsHour, bool resetsMinute)
 	{
-		goToNextOccurrence(month, brokenDownTime_m.tm_mon, 0, 11);
+		if (goToNextOccurrence(month, brokenDownTime_m.tm_mon, 0, 11))
+		{
+			if (resetsMinute) brokenDownTime_m.tm_min = 0;
+			if (resetsHour) brokenDownTime_m.tm_hour = 0;
+			if (resetsDay) brokenDownTime_m.tm_mday = 1;
+		}
+	}
+
+	bool tryAdvanceToYear(int year, bool resetsMonth, bool resetsDay, bool resetsHour, bool resetsMinute)
+	{
+		if (brokenDownTime_m.tm_year > year) return false;
+
+		if (brokenDownTime_m.tm_year != year)
+		{
+			// Save initial values.
+			int initialDayOfMonth = brokenDownTime_m.tm_mday;
+			int initialMonth = brokenDownTime_m.tm_mon;
+
+			// Attempt to change year.
+			brokenDownTime_m.tm_year = year;
+			simplify(); // Can cause a change in month and day. For instance if initial date was 29/02/2016 and year is set to 2017 (there is no leap day in 2017).
+
+			// Check year change did not break month and day or month, day and year represent
+			// an inconsistent constraint.
+			if (brokenDownTime_m.tm_mon != initialMonth || brokenDownTime_m.tm_mday != initialDayOfMonth) return false;
+
+			if (resetsMinute) brokenDownTime_m.tm_min = 0;
+			if (resetsHour) brokenDownTime_m.tm_hour = 0;
+			if (resetsDay) brokenDownTime_m.tm_mday = 1;
+			if (resetsMonth) brokenDownTime_m.tm_mon = 0;
+		}
+		return true;
 	}
 
 	tm *getBrokenDownTime() {return &brokenDownTime_m;}
@@ -105,12 +136,20 @@ private:
 		// Increase value to reach the next occurrence. Field may overflow its
 		// maxValue but mktime will take care of adjusting other fields in a
 		// second step.
-		int previousValue = field;
-		field += (target - field) % (maxValue - minValue + 1);
-		bool hasChanged = field != previousValue;
+		// Do it iteratively, as for months, the dayOfMonth can be incompatible
+		// with the current month. In this case, simplify() would turn month
+		// causing target to be different from brokenDownTime_m.tm_mon.
+		bool hasChanged = false;
+		while (target != field)
+		{
+			int previousValue = field;
+			field += (target - field) % (maxValue - minValue + 1);
+			hasChanged |= field != previousValue;
 
-		// Resolve overflow by adjusting day, month, etc if necessary.
-		simplify();
+			// Resolve overflow by adjusting day, month, etc if necessary.
+			simplify();
+		}
+
 		return hasChanged;
 	}
 

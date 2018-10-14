@@ -517,25 +517,12 @@ time_t PeriodicTask::findNext(time_t start, TimeSpec* next)
     if (wdays == TimeSpec::WeekDays::All)
     {
         if (mday != -1) target.advanceToDayOfMonth(mday, hour == -1, min == -1);
-
-        if (mon != -1)
-        {
-            if (timeinfo.tm_mon > mon)
-                timeinfo.tm_year++;
-            if (timeinfo.tm_mon != mon)
-            {
-                if (min == -1)
-                    timeinfo.tm_min = 0;
-                if (hour == -1)
-                    timeinfo.tm_hour = 0;
-                if (mday == -1)
-                    timeinfo.tm_mday = 1;
-            }
-            timeinfo.tm_mon = mon;
-        }
+        if (mon != -1) target.advanceToMonth(mon, mday == -1, hour == -1, min == -1);
         if (year != -1)
         {
-            if (timeinfo.tm_year > year)
+			// Try to define year. Can fail if incompatible with the specified
+			// day in month or if target year is already behind target.
+			if (!target.tryAdvanceToYear(year, mon == -1, mday == -1, hour == -1, min == -1))
             {
                 logger_m.infoStream() << "No more schedule available" << endlog;
                 return 0;
@@ -544,12 +531,12 @@ time_t PeriodicTask::findNext(time_t start, TimeSpec* next)
     }
     else
     {
-        int wd = (timeinfo.tm_wday+6) % 7;
+        int wd = (target.getBrokenDownTime()->tm_wday+6) % 7;
 
         while ((wdays & (1 << wd)) == 0)
         {
-            timeinfo.tm_mday++;
-            if (timeinfo.tm_mday > 40)
+            target.getBrokenDownTime()->tm_mday++;
+            if (target.getBrokenDownTime()->tm_mday > 40)
             {
                 logger_m.infoStream() << "Wrong weekday specification" << endlog;
                 return 0;
@@ -558,8 +545,8 @@ time_t PeriodicTask::findNext(time_t start, TimeSpec* next)
         }
     }
 
-    timeinfo.tm_sec = 0;
-    time_t nextExecTime = mktimeNoDst(&timeinfo);
+    target.getBrokenDownTime()->tm_sec = 0;
+    time_t nextExecTime = mktimeNoDst(target.getBrokenDownTime());
     
     if (nextExecTime < 0)
     {
@@ -581,8 +568,8 @@ time_t PeriodicTask::findNext(time_t start, TimeSpec* next)
         }
     }
     // now that we selected a day, make time adjustments for that day if needed (e.g. for sunrise or sunset)
-    if (next->adjustTime(&timeinfo))
-        nextExecTime = mktime(&timeinfo);
+    if (next->adjustTime(target.getBrokenDownTime()))
+        nextExecTime = mktime(target.getBrokenDownTime());
     return nextExecTime;
 }
 
@@ -771,11 +758,10 @@ DateTime::DateTime(time_t dateTime)
     memcpy(&brokenDownTime_m, localtime(&dateTime), sizeof(struct tm));
 }
 
-DateTime::mktimeNoDst()
+void DateTime::simplify()
 {
-    time_t ret;
     int dst = brokenDownTime_m.tm_isdst;
-    ret = mktime(&brokenDownTime_m); // If timeinfo happens to be after a DST switch, with the opposite isdst flag set, mktime will offset the hour and fix the isdst flag.
+    mktime(&brokenDownTime_m); // If timeinfo happens to be after a DST switch, with the opposite isdst flag set, mktime will offset the hour and fix the isdst flag.
     if (dst != brokenDownTime_m.tm_isdst)
     {
         if (dst == 1) // If day changed due to DST adjustment, we revert the change.
