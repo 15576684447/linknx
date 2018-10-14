@@ -29,6 +29,95 @@
 #include "ticpp.h"
 #include "objectcontroller.h"
 
+class DateTime
+{
+public:
+	DateTime(time_t dateTime);
+
+public:
+	void advanceToHour(int hour, bool resetsMinute)
+	{
+		if (goToNextOccurrence(hour, brokenDownTime_m.tm_hour, 0, 23) && resetsMinute)
+		{
+			brokenDownTime_m.tm_min = 0;
+		}
+	}
+
+	void advanceToMinute(int minute)
+	{
+		goToNextOccurrence(minute, brokenDownTime_m.tm_min, 0, 59);
+	}
+
+	void addMinutes(int count)
+	{
+		++brokenDownTime_m.tm_min;
+		simplify();
+	}
+
+	void addMonths(int count)
+	{
+		++brokenDownTime_m.tm_mon;
+		simplify();
+	}
+
+	void advanceToDayOfMonth(int day, bool resetsHour, bool resetsMinute)
+	{
+		if (day < 1 || day > 31) throw ticpp::Exception("Day of month specification is outside bounds.");
+
+		// Go to next month if day of month is already behind us in the current
+		// month.
+		if (day < brokenDownTime_m.tm_mday) addMonths(1);
+
+		if (brokenDownTime_m.tm_mday != day)
+		{
+			// We have to switch days, so reset hour and minutes.
+			if (resetsMinute) brokenDownTime_m.tm_min = 0;
+			if (resetsHour) brokenDownTime_m.tm_hour = 0;
+
+			// Blindly set day of month without taking care if this day exists (April 31, for instance).
+			// Then let mktime adjust the month if necessary, by switching to
+			// following month.
+			brokenDownTime_m.tm_mday = day;
+			simplify();
+
+			// At that point, simplify() may have switched to the following
+			// month. Let's force day of month again. Our calendar guarantees
+			// that the day we want exists in the month chosen by mktime (as
+			// 31-day months are between shorter months. That's why there is no
+			// need to simplify again.
+			brokenDownTime_m.tm_mday = day;
+		}
+	}
+
+	void advanceToMonth(int month)
+	{
+		goToNextOccurrence(month, brokenDownTime_m.tm_mon, 0, 11);
+	}
+
+	tm *getBrokenDownTime() {return &brokenDownTime_m;}
+
+private:
+    void simplify();
+	bool goToNextOccurrence(int target, int &field, int minValue, int maxValue)
+	{
+		if (target < minValue || target > maxValue) throw ticpp::Exception("Time specification is outside bounds.");
+
+		// Increase value to reach the next occurrence. Field may overflow its
+		// maxValue but mktime will take care of adjusting other fields in a
+		// second step.
+		int previousValue = field;
+		field += (target - field) % (maxValue - minValue + 1);
+		bool hasChanged = field != previousValue;
+
+		// Resolve overflow by adjusting day, month, etc if necessary.
+		simplify();
+		return hasChanged;
+	}
+
+private:
+	tm brokenDownTime_m;
+};
+
 class TimerTask
 {
 public:

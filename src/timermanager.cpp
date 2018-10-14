@@ -475,7 +475,7 @@ time_t PeriodicTask::mktimeNoDst(struct tm * timeinfo)
 {
     time_t ret;
     int dst = timeinfo->tm_isdst;
-    ret = mktime(timeinfo);
+    ret = mktime(timeinfo); // If timeinfo happens to be after a DST switch, with the opposite isdst flag set, mktime will offset the hour and fix the isdst flag.
     if (dst != timeinfo->tm_isdst)
     {
         logger_m.infoStream() << "PeriodicTask: DST change detected" << endlog;
@@ -498,95 +498,44 @@ time_t PeriodicTask::mktimeNoDst(struct tm * timeinfo)
 
 time_t PeriodicTask::findNext(time_t start, TimeSpec* next)
 {
-    struct tm timeinfostruct;
-    struct tm * timeinfo;
     if (!next)
     {
         logger_m.infoStream() << "PeriodicTask: no more schedule available" << endlog;
         return 0;
     }
-    // make a copy of value returned by localtime to avoid interference
-    // with other calls to localtime or gmtime
-    memcpy(&timeinfostruct, localtime(&start), sizeof(struct tm));
-    timeinfo = &timeinfostruct;
-    
-    timeinfo->tm_min++;
-    if (timeinfo->tm_min > 59)
-    {
-        timeinfo->tm_hour++;
-        timeinfo->tm_min = 0;
-    }
-    
+	
+	DateTime target(start);
+  	target.addMinutes(1);  
+
     int min, hour, mday, mon, year, wdays;
     TimeSpec::ExceptionDays exception;
-    next->getData(&min, &hour, &mday, &mon, &year, &wdays, &exception, timeinfo);
+    next->getData(&min, &hour, &mday, &mon, &year, &wdays, &exception, target.getBrokenDownTime());
     
-    if (min != -1)
-    {
-        if  (timeinfo->tm_min > min)
-            timeinfo->tm_hour++;
-        timeinfo->tm_min = min;
-    }
-    if (timeinfo->tm_hour > 23)
-    {
-        timeinfo->tm_mday++;
-        timeinfo->tm_hour = 0;
-    }
-        
-    if (hour != -1)
-    {
-        if (timeinfo->tm_hour > hour)
-            timeinfo->tm_mday++;
-        if (timeinfo->tm_hour != hour)
-        {
-            if (min == -1)
-                timeinfo->tm_min = 0;
-            timeinfo->tm_hour = hour;
-        }
-    }
+    if (min != -1) target.advanceToMinute(min);
+    if (hour != -1) target.advanceToHour(hour, min == -1);
 
-    mktimeNoDst(timeinfo);
-
-    if (wdays == 0)
+    if (wdays == TimeSpec::WeekDays::All)
     {
-        if (mday != -1)
-        {
-            if (timeinfo->tm_mday > mday)
-                timeinfo->tm_mon++;
-            if (timeinfo->tm_mday != mday)
-            {
-                if (min == -1)
-                    timeinfo->tm_min = 0;
-                if (hour == -1)
-                    timeinfo->tm_hour = 0;
-                timeinfo->tm_mday = mday;
-                mktime(timeinfo);
-                timeinfo->tm_mday = mday;
-            }
-        }
-        if (timeinfo->tm_mon > 11)
-        {
-            timeinfo->tm_year++;
-            timeinfo->tm_mon = 0;
-        }
+        if (mday != -1) target.advanceToDayOfMonth(mday, hour == -1, min == -1);
+
         if (mon != -1)
         {
-            if (timeinfo->tm_mon > mon)
-                timeinfo->tm_year++;
-            if (timeinfo->tm_mon != mon)
+            if (timeinfo.tm_mon > mon)
+                timeinfo.tm_year++;
+            if (timeinfo.tm_mon != mon)
             {
                 if (min == -1)
-                    timeinfo->tm_min = 0;
+                    timeinfo.tm_min = 0;
                 if (hour == -1)
-                    timeinfo->tm_hour = 0;
+                    timeinfo.tm_hour = 0;
                 if (mday == -1)
-                    timeinfo->tm_mday = 1;
+                    timeinfo.tm_mday = 1;
             }
-            timeinfo->tm_mon = mon;
+            timeinfo.tm_mon = mon;
         }
         if (year != -1)
         {
-            if (timeinfo->tm_year > year)
+            if (timeinfo.tm_year > year)
             {
                 logger_m.infoStream() << "No more schedule available" << endlog;
                 return 0;
@@ -595,12 +544,12 @@ time_t PeriodicTask::findNext(time_t start, TimeSpec* next)
     }
     else
     {
-        int wd = (timeinfo->tm_wday+6) % 7;
+        int wd = (timeinfo.tm_wday+6) % 7;
 
         while ((wdays & (1 << wd)) == 0)
         {
-            timeinfo->tm_mday++;
-            if (timeinfo->tm_mday > 40)
+            timeinfo.tm_mday++;
+            if (timeinfo.tm_mday > 40)
             {
                 logger_m.infoStream() << "Wrong weekday specification" << endlog;
                 return 0;
@@ -609,8 +558,8 @@ time_t PeriodicTask::findNext(time_t start, TimeSpec* next)
         }
     }
 
-    timeinfo->tm_sec = 0;
-    time_t nextExecTime = mktimeNoDst(timeinfo);
+    timeinfo.tm_sec = 0;
+    time_t nextExecTime = mktimeNoDst(&timeinfo);
     
     if (nextExecTime < 0)
     {
@@ -632,8 +581,8 @@ time_t PeriodicTask::findNext(time_t start, TimeSpec* next)
         }
     }
     // now that we selected a day, make time adjustments for that day if needed (e.g. for sunrise or sunset)
-    if (next->adjustTime(timeinfo))
-        nextExecTime = mktime(timeinfo);
+    if (next->adjustTime(&timeinfo))
+        nextExecTime = mktime(&timeinfo);
     return nextExecTime;
 }
 
@@ -815,4 +764,36 @@ void ExceptionDays::addDay(DaySpec* day)
 void ExceptionDays::removeDay(DaySpec* day)
 {
     daysList_m.remove(day);
+}
+
+DateTime::DateTime(time_t dateTime)
+{
+    memcpy(&brokenDownTime_m, localtime(&dateTime), sizeof(struct tm));
+}
+
+DateTime::mktimeNoDst()
+{
+    time_t ret;
+    int dst = brokenDownTime_m.tm_isdst;
+    ret = mktime(&brokenDownTime_m); // If timeinfo happens to be after a DST switch, with the opposite isdst flag set, mktime will offset the hour and fix the isdst flag.
+    if (dst != brokenDownTime_m.tm_isdst)
+    {
+        if (dst == 1) // If day changed due to DST adjustment, we revert the change.
+		{
+			brokenDownTime_m.tm_hour++;
+		}
+        else if (dst == 0 && brokenDownTime_m.tm_hour == 3)
+        {
+            // If between 3am and 4am, do not go back before 3am
+            // because we would fall inside the non-existing hour
+            brokenDownTime_m.tm_hour = 3;
+            brokenDownTime_m.tm_min = 0;
+            brokenDownTime_m.tm_sec = 0;
+        }
+        else
+		{
+            brokenDownTime_m.tm_hour--;
+		}
+        mktime(&brokenDownTime_m);
+    }
 }

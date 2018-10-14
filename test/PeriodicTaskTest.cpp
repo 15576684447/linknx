@@ -6,8 +6,9 @@
 class TestablePeriodicTask : public PeriodicTask
 {
 public:
-    TestablePeriodicTask(ChangeListener* cl) : PeriodicTask(cl) {};
-    time_t callFindNext(time_t start, TimeSpec* next) { return findNext(start, next); };
+    TestablePeriodicTask(ChangeListener* cl) : PeriodicTask(cl) {}
+    time_t callFindNext(time_t start, TimeSpec* next) { return findNext(start, next); }
+	time_t callMktimeNoDst(struct tm *timeinfo) { return mktimeNoDst(timeinfo); }
 };
 
 class PeriodicTaskTest : public CppUnit::TestFixture, public ChangeListener
@@ -29,8 +30,10 @@ class PeriodicTaskTest : public CppUnit::TestFixture, public ChangeListener
     CPPUNIT_TEST( testAnyMinutesSpecificDay3 );
     CPPUNIT_TEST( testLeapDay );
     CPPUNIT_TEST( testFindNextDayOfMonthDst );
+    CPPUNIT_TEST( testMktimeNoDst );
     CPPUNIT_TEST( testFindNextHourDst );
     CPPUNIT_TEST( testFindNextHourDst2 );
+    CPPUNIT_TEST( testFindNextHourDst2_2 );
     CPPUNIT_TEST( testFindNextHourDst3 );
     CPPUNIT_TEST( testFindNextHourDst4 );
     CPPUNIT_TEST( testFindNextHourDst5 );
@@ -586,6 +589,7 @@ public:
 
         CPPUNIT_ASSERT(next != 0);
         timeinfo = localtime(&next);
+		std::cout << timeinfo->tm_hour << ":" << timeinfo->tm_min << " " << timeinfo->tm_mday << "/" << timeinfo->tm_mon + 1 << "/" << timeinfo->tm_year + 1900 << std::endl;
         CPPUNIT_ASSERT_EQUAL(56, timeinfo->tm_min);
         CPPUNIT_ASSERT_EQUAL(0, timeinfo->tm_hour);
         CPPUNIT_ASSERT_EQUAL(15, timeinfo->tm_mday);
@@ -646,6 +650,52 @@ public:
         CPPUNIT_ASSERT_EQUAL(2, timeinfo->tm_mon);
         CPPUNIT_ASSERT_EQUAL(113, timeinfo->tm_year);
     }
+
+	void testMktimeNoDst()
+	{
+		struct tm testtime;
+		testtime.tm_hour = 0;
+        testtime.tm_min = 56;
+        testtime.tm_sec = 0;
+        testtime.tm_mday = 15;
+        testtime.tm_mon = 10;
+        testtime.tm_year = 112;
+        testtime.tm_isdst = 1;
+		task_m->callMktimeNoDst(&testtime);
+        CPPUNIT_ASSERT_EQUAL(0, testtime.tm_isdst);
+        CPPUNIT_ASSERT_EQUAL(56, testtime.tm_min);
+        CPPUNIT_ASSERT_EQUAL(0, testtime.tm_hour);
+        CPPUNIT_ASSERT_EQUAL(15, testtime.tm_mday);
+        CPPUNIT_ASSERT_EQUAL(10, testtime.tm_mon);
+        CPPUNIT_ASSERT_EQUAL(112, testtime.tm_year);
+	}
+
+    void testFindNextHourDst2_2()
+    {
+        struct tm curtimeinfo;
+        curtimeinfo.tm_hour = 1;
+        curtimeinfo.tm_min = 59;
+        curtimeinfo.tm_sec = 0;
+        curtimeinfo.tm_mday = 28;
+        curtimeinfo.tm_mon = 9;
+        curtimeinfo.tm_year = 112;
+        curtimeinfo.tm_isdst = -1;
+        time_t curtimeref = mktime(&curtimeinfo);
+        CPPUNIT_ASSERT_EQUAL(1, curtimeinfo.tm_isdst);
+        TimeSpec ts1(1, 3);
+
+        time_t next = task_m->callFindNext(curtimeref, &ts1);
+
+        CPPUNIT_ASSERT(next != 0);
+		struct tm * timeinfo = localtime(&next);
+        CPPUNIT_ASSERT_EQUAL(0, timeinfo->tm_isdst);
+        CPPUNIT_ASSERT_EQUAL(1, timeinfo->tm_min);
+        CPPUNIT_ASSERT_EQUAL(3, timeinfo->tm_hour);
+        CPPUNIT_ASSERT_EQUAL(28, timeinfo->tm_mday);
+        CPPUNIT_ASSERT_EQUAL(9, timeinfo->tm_mon);
+        CPPUNIT_ASSERT_EQUAL(112, timeinfo->tm_year);
+    }
+
 
     void testFindNextHourDst3()
     {
