@@ -29,23 +29,46 @@
 #include "ticpp.h"
 #include "objectcontroller.h"
 
+class DateTime;
+class DateTimeConstraint
+{
+public:
+	DateTimeConstraint(int minute, int hour=-1, int dayOfMonth=-1, int month=-1);
+
+public:
+	void apply(DateTime &date) const;
+
+	void resetUnconstrainedDofs(DateTime &date, int level /*0: min, 1: hour, 2: day, 3: month*/) const;
+
+	static const DateTimeConstraint &getEmpty();
+
+private:
+	void apply(int &field, int value) const;
+
+private:
+	int minute_m;
+	int hour_m;
+	int dayOfMonth_m;
+	int month_m;
+};
+
 class DateTime
 {
 public:
 	DateTime(time_t dateTime);
 
 public:
-	void advanceToHour(int hour, bool resetsMinute)
+	void advanceToHour(int hour, const DateTimeConstraint &constraint)
 	{
-		if (goToNextOccurrence(hour, brokenDownTime_m.tm_hour, 0, 23) && resetsMinute)
+		if (goToNextOccurrence(hour, brokenDownTime_m.tm_hour, 0, 23, constraint))
 		{
-			brokenDownTime_m.tm_min = 0;
+			constraint.resetUnconstrainedDofs(*this, 0);
 		}
 	}
 
 	void advanceToMinute(int minute)
 	{
-		goToNextOccurrence(minute, brokenDownTime_m.tm_min, 0, 59);
+		goToNextOccurrence(minute, brokenDownTime_m.tm_min, 0, 59, DateTimeConstraint::getEmpty());
 	}
 
 	void addMinutes(int count)
@@ -89,13 +112,11 @@ public:
 		}
 	}
 
-	void advanceToMonth(int month, bool resetsDay, bool resetsHour, bool resetsMinute)
+	void advanceToMonth(int month, const DateTimeConstraint &constraint)
 	{
-		if (goToNextOccurrence(month, brokenDownTime_m.tm_mon, 0, 11))
+		if (goToNextOccurrence(month, brokenDownTime_m.tm_mon, 0, 11, constraint))
 		{
-			if (resetsMinute) brokenDownTime_m.tm_min = 0;
-			if (resetsHour) brokenDownTime_m.tm_hour = 0;
-			if (resetsDay) brokenDownTime_m.tm_mday = 1;
+			constraint.resetUnconstrainedDofs(*this, 2);
 		}
 	}
 
@@ -129,7 +150,7 @@ public:
 
 private:
     void simplify();
-	bool goToNextOccurrence(int target, int &field, int minValue, int maxValue)
+	bool goToNextOccurrence(int target, int &field, int minValue, int maxValue, const DateTimeConstraint &constraint)
 	{
 		if (target < minValue || target > maxValue) throw ticpp::Exception("Time specification is outside bounds.");
 
@@ -140,10 +161,16 @@ private:
 		// with the current month. In this case, simplify() would turn month
 		// causing target to be different from brokenDownTime_m.tm_mon.
 		bool hasChanged = false;
+		int range = maxValue - minValue + 1;
 		while (target != field)
 		{
+			// Make sure all constraints are applied first.
+			constraint.apply(*this);
+
 			int previousValue = field;
-			field += (target - field) % (maxValue - minValue + 1);
+			int aheadTarget = target;
+			while (aheadTarget - field < 0) aheadTarget += range;
+			field += (aheadTarget - field) % range;
 			hasChanged |= field != previousValue;
 
 			// Resolve overflow by adjusting day, month, etc if necessary.

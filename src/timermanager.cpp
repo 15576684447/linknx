@@ -512,12 +512,12 @@ time_t PeriodicTask::findNext(time_t start, TimeSpec* next)
     next->getData(&min, &hour, &mday, &mon, &year, &wdays, &exception, target.getBrokenDownTime());
     
     if (min != -1) target.advanceToMinute(min);
-    if (hour != -1) target.advanceToHour(hour, min == -1);
+    if (hour != -1) target.advanceToHour(hour, DateTimeConstraint(min));
 
     if (wdays == TimeSpec::WeekDays::All)
     {
         if (mday != -1) target.advanceToDayOfMonth(mday, hour == -1, min == -1);
-        if (mon != -1) target.advanceToMonth(mon, mday == -1, hour == -1, min == -1);
+        if (mon != -1) target.advanceToMonth(mon, DateTimeConstraint(min, hour, mday));
         if (year != -1)
         {
 			// Try to define year. Can fail if incompatible with the specified
@@ -782,4 +782,36 @@ void DateTime::simplify()
 		}
         mktime(&brokenDownTime_m);
     }
+}
+
+DateTimeConstraint::DateTimeConstraint(int minute, int hour, int dayOfMonth, int month)
+	: minute_m(minute), hour_m(hour), dayOfMonth_m(dayOfMonth), month_m(month)
+{
+}
+
+void DateTimeConstraint::apply(DateTime &date) const
+{
+	apply(date.getBrokenDownTime()->tm_min, minute_m);
+	apply(date.getBrokenDownTime()->tm_hour, hour_m);
+	apply(date.getBrokenDownTime()->tm_mday, dayOfMonth_m);
+	apply(date.getBrokenDownTime()->tm_mon, month_m);
+}
+
+void DateTimeConstraint::resetUnconstrainedDofs(DateTime &date, int level /*0: min, 1: hour, 2: day, 3: month*/) const
+{
+	if (level >= 0 && minute_m == -1) date.getBrokenDownTime()->tm_min = 0;
+	if (level >= 1 && hour_m == -1) date.getBrokenDownTime()->tm_hour = 0;
+	if (level >= 2 && dayOfMonth_m == -1) date.getBrokenDownTime()->tm_mday = 1;
+	if (level >= 3 && month_m == -1) date.getBrokenDownTime()->tm_mon = 0;
+}
+
+void DateTimeConstraint::apply(int &field, int value) const
+{
+	if (value != -1) field = value;
+}
+
+const DateTimeConstraint &DateTimeConstraint::getEmpty()
+{
+	static DateTimeConstraint empty(-1, -1, -1, -1);
+	return empty;
 }

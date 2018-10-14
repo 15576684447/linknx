@@ -566,7 +566,7 @@ public:
         CPPUNIT_ASSERT_EQUAL(1, timeinfo->tm_hour);
         CPPUNIT_ASSERT_EQUAL(29, timeinfo->tm_mday);
         CPPUNIT_ASSERT_EQUAL(1, timeinfo->tm_mon);
-        CPPUNIT_ASSERT_EQUAL(120, timeinfo->tm_year); // 20/02/2020 which is next leap year.
+        CPPUNIT_ASSERT_EQUAL(120, timeinfo->tm_year); // 29/02/2020 which is next leap year.
     }
 
     void testFindNextDayOfMonthDst()
